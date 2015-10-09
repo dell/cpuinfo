@@ -1,0 +1,6 @@
+cpuinfo
+Copyright (c) 2013 Dell Inc.  <jordan_hargrave@dell.com>
+Licensed under the GNU General Public License, Version 2
+
+cpuinfo will query information about all running CPUs in the system.
+Displays number of cores, cache levels, ID string, etc.

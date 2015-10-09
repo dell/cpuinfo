@@ -1,3 +1,8 @@
+/*
+ *  Copyright (c) 2013 Dell, Inc.
+ *  by Jordan Hargrave <Jordan_Hargrave@dell.com>
+ *  Licensed under the GNU General Public license, version 2.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,7 +11,7 @@
 #include <syscall.h>
 #include <inttypes.h>
 
-#define CPUINFO_VERSION "v1.2"
+#define CPUINFO_VERSION "1.3.0"
 
 #undef __NR_sched_setaffinity
 #undef __NR_sched_getaffinity
@@ -54,8 +59,10 @@ struct cpuinfo
   int   node_id;
   int   virt_bits;
   int   phys_bits;
+  int   cache_line;
   char  name[64];
   char  extname[64];
+  char  virtname[64];
   int   x86;
   int   x86_model;
   int   x86_mask;
@@ -73,6 +80,8 @@ static void cpuid(int iax, int icx, int *eax, int *ebx, int *ecx, int *edx)
   int   tmp;
 
   if (file) {
+    *eax = *ebx = *ecx = *edx = 0;
+
     fp = fopen(file, "r");
     while (fgets(line, sizeof(line), fp) != NULL) {
       sscanf(line, " %x: %x %x %x %x", &tmp, eax, ebx, ecx, edx);
@@ -104,7 +113,10 @@ void parsecpu(unsigned int start, struct cpuinfo *ci)
 {
   unsigned int a,b,c,d,end;
 
+  a = b = c = d = end = 0;
   cpuid(start,0,&end,&a,&a,&a);
+  if (start == 0x40000000 && !(end >= 0x40000000 && end <= 0x400000FF))
+    return;
   while(start <= end) {
     cpuid(start,0,&a,&b,&c,&d);
     switch(start) {
@@ -131,6 +143,9 @@ void parsecpu(unsigned int start, struct cpuinfo *ci)
       }
       if (ci->x86 >= 6) {
 	ci->x86_model += ((a >> 12) & 0xF0);
+      }
+      if (ci->type == CPU_INTEL) {
+	ci->cache_line = ((b >> 8) & 0xFF) * 8;
       }
       break;
     case 0x04:
@@ -186,6 +201,7 @@ void parsecpu(unsigned int start, struct cpuinfo *ci)
 	ci->cache[ci->ncache+1].size = d >> 24;
 	ci->cache[ci->ncache+1].level = 1;
 	ci->ncache += 2;
+	ci->cache_line = d & 0xFF;
       }
       break;
     case 0x80000006:
@@ -198,6 +214,11 @@ void parsecpu(unsigned int start, struct cpuinfo *ci)
 	ci->cache[ci->ncache+1].level = 3;
 	ci->ncache += 2;
       }
+      break;
+    case 0x40000000:
+      *(int *)(ci->virtname+0x00) = b;
+      *(int *)(ci->virtname+0x04) = c;
+      *(int *)(ci->virtname+0x08) = d;
       break;
     }
     start++;
@@ -232,7 +253,8 @@ void docpuinfo(int cpu)
   ci.ncores = 1;
 
   printf("---- (CPU %d) ----\n", ci.cpu);
-  parsecpu(0x0000000UL,&ci);
+  parsecpu(0x00000000L,&ci);
+  parsecpu(0x40000000L,&ci);
   parsecpu(0x80000000L,&ci);
 
   /* Display CPU information */
@@ -245,6 +267,7 @@ void docpuinfo(int cpu)
     ;
   printf("  name    : %s\n", ci.name);
   printf("  extname : %s\n", stripch(ci.extname));
+  printf("  virtname: %s\n", stripch(ci.virtname));
   printf("  cpuid   : %3x (%x,%x,%x)\n", ci.cpuid, ci.x86, ci.x86_model, ci.x86_mask);
   printf("  apic id : %.2x [node=%.2x]\n", ci.apicid, ci.node_id);
   printf("  #logical: %d\n", ci.nlogical);
@@ -252,6 +275,7 @@ void docpuinfo(int cpu)
   printf("  virtbits: %d\n", ci.virt_bits);
   printf("  physbits: %d\n", ci.phys_bits);
   printf("  -- cache info --\n");
+  printf("  cache line: %d\n", ci.cache_line);
   for(x=0; x<ci.ncache; x++) {
     printf("  type=%d[%s] level=L%d nthread=%2d size=%uK\n",
 	   ci.cache[x].type, cachetype(ci.cache[x].type),
