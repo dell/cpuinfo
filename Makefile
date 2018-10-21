@@ -1,2 +1,6 @@
-all: cpuinfo.c
-	gcc -g -o cpuinfo cpuinfo.c
+all: cpuinfo
+
+cpuinfo: cpuinfo.c
+	$(CC) $(CFLAGS)-o $@ $<
+
+clean: rm -f cpuinfo
